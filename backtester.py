@@ -1,42 +1,74 @@
+# backtester.py
+
 import pandas as pd
 import numpy as np
 
+# -------------------------------
+# Helper function to calculate max drawdown
+# -------------------------------
+def max_drawdown(equity):
+    peak = equity[0] if equity else 0
+    max_dd = 0
+    for x in equity:
+        if x > peak:
+            peak = x
+        dd = peak - x
+        if dd > max_dd:
+            max_dd = dd
+    return max_dd
+
+# -------------------------------
+# Main backtesting function
+# -------------------------------
 def run_backtest():
 
-    # Load the preloaded CSV directly
-    df = pd.read_csv("data/xauusd_2024_m1.csv", sep=None, engine='python')
+    # -------------------------------
+    # Load preloaded CSV (update the filename here)
+    # -------------------------------
+    df = pd.read_csv("data/DAT_MT_XAUUSD_M1_2024.csv", sep=None, engine='python')
 
-    # Handle HistData format (semicolon, no header)
+    # -------------------------------
+    # Handle HistData semicolon format automatically
+    # -------------------------------
     if len(df.columns) == 1:
+        # Split semicolon data
         df = df[df.columns[0]].str.split(';', expand=True)
         df.columns = ['datetime','open','high','low','close','volume']
         df['time'] = pd.to_datetime(df['datetime'], format='%Y%m%d %H%M%S')
         df = df[['time','open','high','low','close']]
     else:
+        # Standard CSV with headers
         df.columns = [c.lower() for c in df.columns]
         if 'time' not in df.columns:
             if 'datetime' in df.columns:
                 df.rename(columns={'datetime':'time'}, inplace=True)
         df['time'] = pd.to_datetime(df['time'])
 
+    # -------------------------------
     # Convert numeric columns
+    # -------------------------------
     for col in ['open','high','low','close']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
     df.set_index('time', inplace=True)
 
-    # Resample timeframes
+    # -------------------------------
+    # Resample to multiple timeframes
+    # -------------------------------
     df_5m = df.resample('5T').agg({'open':'first','high':'max','low':'min','close':'last'}).dropna()
     df_1h = df.resample('1H').agg({'open':'first','high':'max','low':'min','close':'last'}).dropna()
 
-    # Backtesting logic (same as before)
-    balance = 1000
-    risk_per_trade = 20
+    # -------------------------------
+    # Backtesting logic
+    # -------------------------------
+    balance = 1000             # starting balance
+    risk_per_trade = 20        # fixed risk per trade
     trades = []
     equity = []
 
     for i in range(20, len(df_5m)):
         current_time = df_5m.index[i]
+
         if current_time not in df_1h.index:
             continue
 
@@ -93,7 +125,10 @@ def run_backtest():
                         break
         equity.append(balance)
 
-    win_rate = len([t for t in trades if t>0])/len(trades)*100 if trades else 0
+    # -------------------------------
+    # Calculate stats
+    # -------------------------------
+    win_rate = len([t for t in trades if t > 0]) / len(trades) * 100 if trades else 0
     max_dd = max_drawdown(equity)
 
     return {
@@ -102,14 +137,3 @@ def run_backtest():
         "win_rate": round(win_rate,2),
         "max_drawdown": round(max_dd,2)
     }
-
-def max_drawdown(equity):
-    peak = equity[0] if equity else 0
-    max_dd = 0
-    for x in equity:
-        if x > peak:
-            peak = x
-        dd = peak - x
-        if dd > max_dd:
-            max_dd = dd
-    return max_dd
