@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from backtester import run_backtest
 
@@ -12,5 +12,8 @@ async def home(request: Request):
 
 @app.post("/backtest")
 async def backtest():
-    results = run_backtest()  # no file upload needed
-    return results
+    try:
+        results = run_backtest()
+        return JSONResponse(content=results)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
