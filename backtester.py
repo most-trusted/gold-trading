@@ -2,10 +2,12 @@
 
 import pandas as pd
 import numpy as np
+import requests
 
-# -------------------------------
-# Helper function to calculate max drawdown
-# -------------------------------
+API_KEY = "M369PH68TX0PTVYP"
+SYMBOL = "XAU"
+MARKET = "USD"
+
 def max_drawdown(equity):
     peak = equity[0] if equity else 0
     max_dd = 0
@@ -17,58 +19,44 @@ def max_drawdown(equity):
             max_dd = dd
     return max_dd
 
-# -------------------------------
-# Main backtesting function
-# -------------------------------
-def run_backtest():
+def fetch_data(interval="5min", outputsize="full", start_date=None, end_date=None):
+    url = f"https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol={SYMBOL}&to_symbol={MARKET}&interval={interval}&apikey={API_KEY}&outputsize={outputsize}"
+    r = requests.get(url)
+    data = r.json()
 
-    # -------------------------------
-    # Load preloaded CSV (update the filename here)
-    # -------------------------------
-    df = pd.read_csv("data/DAT_MT_XAUUSD_M1_2024.csv", sep=None, engine='python')
+    if 'Time Series FX (' not in data and 'Error Message' in data:
+        raise Exception(data['Error Message'])
 
-    # -------------------------------
-    # Handle HistData semicolon format automatically
-    # -------------------------------
-    if len(df.columns) == 1:
-        # Split semicolon data
-        df = df[df.columns[0]].str.split(';', expand=True)
-        df.columns = ['datetime','open','high','low','close','volume']
-        df['time'] = pd.to_datetime(df['datetime'], format='%Y%m%d %H%M%S')
-        df = df[['time','open','high','low','close']]
-    else:
-        # Standard CSV with headers
-        df.columns = [c.lower() for c in df.columns]
-        if 'time' not in df.columns:
-            if 'datetime' in df.columns:
-                df.rename(columns={'datetime':'time'}, inplace=True)
-        df['time'] = pd.to_datetime(df['time'])
+    key = [k for k in data.keys() if 'Time Series FX' in k][0]
+    df = pd.DataFrame.from_dict(data[key], orient='index')
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+    df = df.rename(columns={
+        "1. open":"open",
+        "2. high":"high",
+        "3. low":"low",
+        "4. close":"close"
+    }).astype(float)
 
-    # -------------------------------
-    # Convert numeric columns
-    # -------------------------------
-    for col in ['open','high','low','close']:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+    # Filter by date if provided
+    if start_date:
+        df = df[df.index >= pd.to_datetime(start_date)]
+    if end_date:
+        df = df[df.index <= pd.to_datetime(end_date)]
 
-    df.set_index('time', inplace=True)
+    return df
 
-    # -------------------------------
-    # Resample to multiple timeframes
-    # -------------------------------
-    df_5m = df.resample('5T').agg({'open':'first','high':'max','low':'min','close':'last'}).dropna()
+def run_backtest(interval="5min", start_date=None, end_date=None):
+    df = fetch_data(interval=interval, start_date=start_date, end_date=end_date)
     df_1h = df.resample('1H').agg({'open':'first','high':'max','low':'min','close':'last'}).dropna()
 
-    # -------------------------------
-    # Backtesting logic
-    # -------------------------------
-    balance = 1000             # starting balance
-    risk_per_trade = 20        # fixed risk per trade
+    balance = 1000
+    risk_per_trade = 20
     trades = []
     equity = []
 
-    for i in range(20, len(df_5m)):
-        current_time = df_5m.index[i]
-
+    for i in range(20, len(df)):
+        current_time = df.index[i]
         if current_time not in df_1h.index:
             continue
 
@@ -82,8 +70,8 @@ def run_backtest():
         elif htf['close'].iloc[-1] < htf['low'].min():
             bias = "bearish"
 
-        candle = df_5m.iloc[i]
-        prev = df_5m.iloc[i-1]
+        candle = df.iloc[i]
+        prev = df.iloc[i-1]
 
         entry = stop = target = None
 
@@ -103,7 +91,7 @@ def run_backtest():
 
         if entry:
             position_size = risk_per_trade / risk
-            future = df_5m.iloc[i+1:i+20]
+            future = df.iloc[i+1:i+20]
             for _, row in future.iterrows():
                 if bias == "bullish":
                     if row['low'] <= stop:
@@ -125,9 +113,6 @@ def run_backtest():
                         break
         equity.append(balance)
 
-    # -------------------------------
-    # Calculate stats
-    # -------------------------------
     win_rate = len([t for t in trades if t > 0]) / len(trades) * 100 if trades else 0
     max_dd = max_drawdown(equity)
 
