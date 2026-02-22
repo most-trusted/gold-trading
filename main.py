@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from backtester import run_backtest
@@ -11,6 +11,6 @@ async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/backtest")
-async def backtest(file: UploadFile = File(...)):
-    results = run_backtest(file.file)  # pass file-like object
+async def backtest():
+    results = run_backtest()  # no file upload needed
     return results
